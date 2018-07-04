@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Copyright 2018 Akretion (Alexis de Lattre <alexis.delattre@akretion.com>)
+  License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
+-->
+
+<openerp>
+<data noupdate="1">
+
+<record id="jenji_sync_analytic_cron" model="ir.cron">
+    <field name="name">Jenji: Sync analytic accounts</field>
+    <field name="active" eval="False"/>
+    <field name="user_id" ref="base.user_root"/>
+    <field name="interval_number">1</field>
+    <field name="interval_type">days</field>
+    <field name="numbercall">-1</field> <!-- don't limit the number of calls -->
+    <field name="model">account.analytic.account</field>
+    <field name="function">jenji_sync</field>
+    <field name="args">()</field>
+</record>
+
+</data>
+</openerp>

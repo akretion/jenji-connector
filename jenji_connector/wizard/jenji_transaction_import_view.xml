@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  © 2016-2017 Akretion (Alexis de Lattre <alexis.delattre@akretion.com>)
+  License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
+-->
+
+<openerp>
+<data>
+
+<record id="jenji_transaction_import_form" model="ir.ui.view">
+    <field name="name">jenji.transaction.import.form</field>
+    <field name="model">jenji.transaction.import</field>
+    <field name="arch"  type="xml">
+        <form string="Jenji Transaction Import Wizard">
+            <group name="help-import">
+              <div>
+                <p>Odoo will connect to <a href="https://jenji.io/">jenji</a> via webservices.</p>
+              </div>
+            </group>
+            <group name="import">
+                <field name="start_date"/>
+                <field name="end_date"/>
+            </group>
+            <footer>
+                <button name="jenji_import" type="object"
+                    class="oe_highlight" string="Import"/>
+                <button special="cancel" string="Cancel" class="oe_link"/>
+            </footer>
+        </form>
+    </field>
+</record>
+
+<record id="jenji_transaction_import_action" model="ir.actions.act_window">
+    <field name="name">Jenji Import</field>
+    <field name="res_model">jenji.transaction.import</field>
+    <field name="view_mode">form</field>
+    <field name="target">new</field>
+</record>
+
+<menuitem id="jenji_transaction_import_menu" action="jenji_transaction_import_action"
+    parent="jenji_menu" sequence="20"/>
+
+</data>
+</openerp>
