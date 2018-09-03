@@ -36,6 +36,7 @@
                         <field name="receipt_lost" attrs="{'invisible': [('image_url', '!=', False)]}"/>
                         <field name="unique_import_id" groups="base.group_no_one"/>
                         <field name="jenji_state"/>
+                        <field name="tags"/>
                         <field name="company_id" groups="base.group_multi_company"/>
                     </group>
                     <group name="classification" string="Classification" colspan="2">
@@ -43,6 +44,7 @@
                         <field name="mileage_expense"/>
                         <field name="expense_categ_code" groups="base.group_no_one"/>
                         <field name="product_id"/>
+                        <field name="meal_type"/>
                         <field name="expense_account_id"/>
                         <field name="force_expense_account_id"/>
                         <field name="account_analytic_id"
@@ -74,6 +76,7 @@
     <field name="arch"  type="xml">
         <tree string="Jenji Transactions" colors="blue:state=='draft'">
             <field name="name"/>
+            <field name="company_id"/>
             <field name="partner_id"/>
             <field name="date"/>
             <field name="description"/>
@@ -81,6 +84,8 @@
             <field name="product_id"/>
             <field name="account_analytic_id"
                 groups="analytic.group_analytic_accounting"/>
+			<field name="billable"/>
+			<field name="tags"/>
             <field name="merchant"/>
             <field name="country_id"/>
             <field name="company_id" groups="base.group_multi_company"/>
@@ -89,7 +94,6 @@
             <field name="company_currency_id"/>
             <field name="total_currency" string="Amount in Expense Currency"/>
             <field name="currency_id"/>
-            <field name="billable"/>
             <field name="image_url" invisible="1"/>
             <button name="open_image_url"
                 type="object" string="Expense Image"
@@ -144,7 +148,9 @@
                 <filter name="state_groupby" string="State"
                     context="{'group_by': 'state'}"/>
                 <filter name="jenji_state_groupby" string="Jenji State"
-                    context="{'group_by': 'jenji_state'}"/>
+                    context="{'group_by': 'jenji_state'}"/>               
+				<filter name="billable_groupby" string="Refacturable"
+                    context="{'group_by': 'billable'}"/>
             </group>
         </search>
     </field>
@@ -177,13 +183,13 @@
 </record>
 
 <record id="jenji_transaction_action" model="ir.actions.act_window">
-    <field name="name">Jenji Transactions</field>
+    <field name="name">Jenji Expenses</field>
     <field name="res_model">jenji.transaction</field>
     <field name="view_mode">tree,form,graph,calendar</field>
 </record>
 
 <menuitem id="jenji_menu" name="Jenji"
-    parent="account.menu_finance" sequence="10"/>
+    parent="account.menu_finance" sequence="2"/>
 
 <menuitem id="jenji_transaction_menu" action="jenji_transaction_action"
     parent="jenji_menu" sequence="10"/>

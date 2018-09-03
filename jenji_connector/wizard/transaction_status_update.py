@@ -11,7 +11,7 @@ class JenjiTransactionStatusUpdate(models.TransientModel):
     _description = 'Update Jenji Transaction Statuts'
 
     jenji_state = fields.Selection([
-        ('posted', 'Posted'),
+        ('accounted', 'Accounted'),
         ('paid', 'Paid'),
         ], string='New Jenji Status', required=True)
     paid_date = fields.Date(
@@ -27,8 +27,8 @@ class JenjiTransactionStatusUpdate(models.TransientModel):
         assert self.env.context.get('active_ids'), 'No transactions selected'
         transactions = self.env['jenji.transaction'].browse(
             self.env.context['active_ids'])
-        if self.jenji_state == 'posted':
-            transactions.jenji_posted_status()
+        if self.jenji_state == 'accounted':
+            transactions.jenji_accounted_status()
         elif self.jenji_state == 'paid':
             transactions.jenji_paid_status(
                 date=self.paid_date or None,

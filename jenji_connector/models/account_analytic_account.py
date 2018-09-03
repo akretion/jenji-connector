@@ -17,7 +17,7 @@ class AccountAnalyticAccount(models.Model):
     @api.model
     def jenji_sync(self):
         logger.info('Start to sync contracts to jenji')
-        cxp = self.env['jenji.transaction.import'].get_connection_params()
+        cxp = self.env['jenji.transaction'].get_connection_params()
         # The last part of the URL ('analytic') is the technical name
         # of the custom field in Jenji
         url = cxp['url'] + '/s/group-custom-list/v1/analytic/'
