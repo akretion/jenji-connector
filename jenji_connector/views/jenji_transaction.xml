@@ -76,11 +76,10 @@
     <field name="arch"  type="xml">
         <tree string="Jenji Transactions" colors="blue:state=='draft'">
             <field name="name"/>
-            <field name="company_id"/>
+            <field name="company_id" groups="base.group_multi_company"/>
             <field name="partner_id"/>
             <field name="date"/>
             <field name="description"/>
-            <field name="mileage_expense"/>
             <field name="product_id"/>
             <field name="account_analytic_id"
                 groups="analytic.group_analytic_accounting"/>
@@ -88,7 +87,6 @@
 			<field name="tags"/>
             <field name="merchant"/>
             <field name="country_id"/>
-            <field name="company_id" groups="base.group_multi_company"/>
             <field name="vat_company_currency" string="VAT"/>
             <field name="total_company_currency" sum="Total" string="Amount"/>
             <field name="company_currency_id"/>
