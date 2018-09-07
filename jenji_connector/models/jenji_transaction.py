@@ -109,11 +109,10 @@ class JenjiTransaction(models.Model):
         string='Billable', states={'done': [('readonly', True)]})
     customer_invoice_id = fields.Many2one(
         'account.invoice', string='Customer Invoice', readonly=True)
-    tags = fields.Char( 
+    tags = fields.Char(
         string='Tags', readonly=True, size=128)
-    meal_type = fields.Char( 
+    meal_type = fields.Char(
         string='Meal Type', readonly=True)
-
 
     _sql_constraints = [(
         'unique_import_id',
@@ -181,8 +180,8 @@ class JenjiTransaction(models.Model):
             'url': url,
             'login': username,
             'password': password,
+            'auth': (username, password),
             }
-        print 'CXP:', cxp
         return cxp
 
     @api.model
@@ -399,7 +398,8 @@ class JenjiTransaction(models.Model):
     def jenji_accounted_status(self):
         trans_to_update = self.filtered(
             lambda t: t.move_id and t.unique_import_id)
-        logger.debug("transactions to update to accounted: %s", trans_to_update)
+        logger.debug(
+            "transactions to update to accounted: %s", trans_to_update)
         if not trans_to_update:
             raise UserError(_(
                 "There are no transactions to update."))
@@ -412,7 +412,7 @@ class JenjiTransaction(models.Model):
         try:
             res = requests.post(
                 cxp['url'] + '/s/bookkeeper/v2/expense',
-                auth=(cxp['login'], cxp['password']),
+                auth=cxp['auth'],
                 json=payload)
         except Exception as e:
             raise UserError(_(
@@ -434,7 +434,7 @@ class JenjiTransaction(models.Model):
         try:
             res = requests.post(
                 cxp['url'] + '/s/export/v1/export/%s' % export_id,
-                auth=(cxp['login'], cxp['password']),
+                auth=cxp['auth'],
                 json={'state': 'ACCOUNTED'})
         except Exception as e:
             raise UserError(_(
@@ -468,7 +468,7 @@ class JenjiTransaction(models.Model):
         try:
             res = requests.post(
                 cxp['url'] + '/s/payroll/v1/expense',
-                auth=(cxp['login'], cxp['password']),
+                auth=cxp['auth'],
                 json=payload)
         except Exception as e:
             raise UserError(_(
@@ -498,7 +498,7 @@ class JenjiTransaction(models.Model):
         try:
             res = requests.post(
                 cxp['url'] + '/s/payroll/v1/export/%s' % export_id,
-                auth=(cxp['login'], cxp['password']), json=payload)
+                auth=cxp['auth'], json=payload)
         except Exception as e:
             raise UserError(_(
                 "Failure in the webservice request for Jenji: "
@@ -540,9 +540,7 @@ class JenjiTransaction(models.Model):
         logger.info('Connecting to Jenji %s with payload %s', url_end, payload)
         try:
             res = requests.put(
-                cxp['url'] + url_end,
-                auth=(cxp['login'], cxp['password']),
-                json=payload)
+                cxp['url'] + url_end, auth=cxp['auth'], json=payload)
         except Exception as e:
             raise UserError(_(
                 "Failure in the webservice request to Jenji: "
@@ -552,3 +550,91 @@ class JenjiTransaction(models.Model):
                 "Error in the connexion to the Jenji webservice %s"
                 "Received HTTP error code %s") % (url_end, res.status_code))
         logger.info('Successfully used Jenji WS %s', url_end)
+
+    def get_detailed_pdf(self):
+        cxp = self.get_connection_params()
+        logger.info('Starting to get detailed PDF for transactions %s', self)
+        expense_uuids = [
+            trans.unique_import_id for trans in self if trans.unique_import_id]
+        datetime_in_tz_dt = fields.Datetime.context_timestamp(
+            self, datetime.now())
+        cur_date_tz = datetime_in_tz_dt.strftime('%Y%m%d%H%M%S')
+        res = False
+        url_pdf = '/s/user-exports/v1/pdf/detailed-light'
+        try:
+            json = {
+                'expenseIds': expense_uuids,
+                'label': 'Jenji_export_%s' % cur_date_tz,
+                }
+            res = requests.post(
+                cxp['url'] + url_pdf, auth=cxp['auth'], json=json, stream=True)
+        except Exception as e:
+            raise UserError(_(
+                "Failure in the webservice request to Jenji: "
+                "%s") % e)
+        if res.status_code not in (200, 201):
+            raise UserError(_(
+                "Error in the connexion to the Jenji webservice %s"
+                "Received HTTP error code %s") % (url_pdf, res.status_code))
+        logger.info('Successfully used Jenji WS %s', url_pdf)
+        res_dict = res.json()
+        export_id = res_dict['exportId']
+        logger.debug('Got export_id=%s', export_id)
+        try_count = 0
+        pdf_file_b64 = False
+        # I would have prefered to use
+        # /user-export-download/v1/dl/{orgId}/{exportId}
+        # but the WS supposed to give orgID doesn't give it
+        url_search = '/s/user-exports/v1/search'
+        now = datetime.now()
+        search_json = {
+            'endMonth': now.month,
+            'endYear': now.year,
+            'startMonth': now.month,
+            'startYear': now.year,
+            }
+        url_dl = 'http://export-user.jenji.io'
+        while try_count <= 10:
+            try_count += 1
+            logger.debug('Updated try_count to %d', try_count)
+            rsearch = False
+            export_file = False
+            try:
+                logger.debug(
+                    'Starting request on %s with payload %s',
+                    url_search, search_json)
+                rsearch = requests.post(
+                    cxp['url'] + url_search, auth=cxp['auth'],
+                    json=search_json, stream=True)
+            except Exception as e:
+                logger.info('Failed to call URL %s', url_search)
+                time.sleep(5)
+                continue
+            if rsearch and rsearch.status_code == 200:
+                exports = rsearch.json().get('exports', [])
+                for export in exports:
+                    if export.get('id') == export_id and export.get('file'):
+                        export_file = export['file']
+                        break
+            if export_file:
+                rdl = False
+                try:
+                    logger.debug(
+                        'GET request on %s with export_file=%s',
+                        url_dl, export_file)
+                    rdl = requests.get(
+                        url_dl + '/' + export_file, auth=cxp['auth'],
+                        stream=True)
+                except Exception as e:
+                    logger.info('Failed to call URL %s', url_dl)
+                    time.sleep(5)
+                    continue
+                if rdl.status_code == 200:
+                    pdf_file = rdl.content
+                    pdf_file_b64 = pdf_file.encode('base64')
+                    logger.info('PDF download ok (trycount=%d)', try_count)
+                    return pdf_file_b64
+            logger.info(
+                'Waiting 5 sec before next try (trycount=%d)', try_count)
+            time.sleep(5)
+        return pdf_file_b64
