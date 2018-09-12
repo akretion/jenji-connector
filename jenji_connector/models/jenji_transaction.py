@@ -28,7 +28,8 @@ class JenjiTransaction(models.Model):
         'res.currency', related='company_id.currency_id', readonly=True,
         string="Company Currency")
     description = fields.Char(
-        string='Description', states={'done': [('readonly', True)]})
+        string='Description', readonly=True,
+        states={'draft': [('readonly', False)]})
     unique_import_id = fields.Char(
         string='Unique Identifier', readonly=True, copy=False)
     date = fields.Date(
@@ -39,7 +40,7 @@ class JenjiTransaction(models.Model):
         string='Expense Category Code', readonly=True)
     product_id = fields.Many2one(
         'product.product', string='Expense Product', ondelete='restrict',
-        states={'done': [('readonly', True)]})
+        readonly=True, states={'draft': [('readonly', False)]})
     expense_account_id = fields.Many2one(
         'account.account', compute='compute_expense_account_id', readonly=True,
         string='Expense Account of the Product')
@@ -49,14 +50,14 @@ class JenjiTransaction(models.Model):
         domain=[('type', 'not in', ('view', 'closed', 'consolidation'))])
     account_analytic_id = fields.Many2one(
         'account.analytic.account', string='Analytic Account',
-        domain=[('type', '!=', 'view')],
-        states={'done': [('readonly', True)]}, ondelete='restrict')
+        domain=[('type', '!=', 'view')], readonly=True,
+        states={'draft': [('readonly', False)]}, ondelete='restrict')
     country_id = fields.Many2one(
         'res.country', string='Country', readonly=True)
     merchant = fields.Char(string='Merchant', readonly=True)
     total_untaxed_company_currency = fields.Float(
         digits=dp.get_precision('Account'),
-        states={'done': [('readonly', True)]},
+        states={'draft': [('readonly', False)]},
         readonly=True, string='Untaxed Company Currency')
     vat_company_currency = fields.Float(
         string='VAT Amount',
@@ -81,10 +82,12 @@ class JenjiTransaction(models.Model):
         string='Total Untaxed in Expense Currency', readonly=True)
     image_url = fields.Char(string='Image URL', readonly=True)
     receipt_lost = fields.Boolean(
-        string='Receipt Lost', states={'done': [('readonly', True)]})
+        string='Receipt Lost', readonly=True,
+        states={'draft': [('readonly', False)]})
     state = fields.Selection([
         ('draft', 'Draft'),
-        ('done', 'Accounted'),
+        ('open', 'Accounted'),
+        ('paid', 'Paid'),
         ], string='State', default='draft', readonly=True)
     jenji_state = fields.Selection([
         ('accounted', 'Accounted'),
@@ -92,21 +95,23 @@ class JenjiTransaction(models.Model):
         ], string='Status of the Transaction on Jenji', readonly=True)
     user_id = fields.Many2one(
         'res.users', string='User', ondelete='restrict',
-        states={'done': [('readonly', True)]})
+        readonly=True, states={'draft': [('readonly', False)]})
     partner_id = fields.Many2one(
         'res.partner', string='Partner', required=True,
         domain=[('supplier', '=', True), ('parent_id', '=', False)],
-        states={'done': [('readonly', True)]}, ondelete='restrict')
+        states={'draft': [('readonly', False)]}, ondelete='restrict',
+        readonly=True)
     force_expense_account_id = fields.Many2one(
         'account.account', string='Override Expense Account',
         help="Override the expense account configured on the product",
-        states={'done': [('readonly', True)]},
+        states={'draft': [('readonly', False)]}, readonly=True,
         domain=[('type', 'not in', ('view', 'closed', 'consolidation'))])
     mileage_expense = fields.Boolean(string='Mileage Expense', readonly=True)
     move_id = fields.Many2one(
         'account.move', string='Expense Journal Entry', readonly=True)
     billable = fields.Boolean(
-        string='Billable', states={'done': [('readonly', True)]})
+        string='Billable', states={'draft': [('readonly', True)]},
+        readonly=True)
     customer_invoice_id = fields.Many2one(
         'account.invoice', string='Customer Invoice', readonly=True)
     tags = fields.Char(
@@ -234,10 +239,10 @@ class JenjiTransaction(models.Model):
     @api.multi
     def unlink(self):
         for line in self:
-            if line.state == 'done':
+            if line.state != 'draft':
                 raise UserError(_(
                     "Cannot delete Jenji transaction '%s' which is in "
-                    "done state.") % line.name)
+                    "not in draft state.") % line.name)
             if line.move_id:
                 raise UserError(_(
                     "Cannot delete Jenji transaction '%s which is linked "
@@ -387,18 +392,41 @@ class JenjiTransaction(models.Model):
     @api.multi
     def process_lines(self):
         self.generate_move()
-        self.write({'state': 'done'})
+        self.write({'state': 'open'})
 
     @api.multi
     def back2draft(self):
+        for trans in self:
+            if trans.move_id:
+                trans.move_id.button_cancel()
+                trans.move_id.unlink()
         self.write({'state': 'draft'})
         return True
+
+    @api.multi
+    def open2paid(self):
+        self.write({'state': 'paid'})
+
+    @api.model
+    def cron_jenji_state_update(self):
+        logger.info('START cron jenji state update')
+        trans_to_mark_as_accounted = self.search([
+            ('state', 'not in', ('draft', 'paid')),
+            '|', ('jenji_state', '!=', 'accounted'), ('jenji_state', '=', False)])
+        if trans_to_mark_as_accounted:
+            trans_to_mark_as_accounted.jenji_accounted_status()
+        trans_to_mark_as_paid = self.search([
+            ('state', '=', 'paid'),
+            '|', ('jenji_state', '!=', 'paid'), ('jenji_state', '=', False)])
+        if trans_to_mark_as_paid:
+            trans_to_mark_as_paid.jenji_paid_status()
+        logger.info('END cron jenji state update')
 
     @api.multi
     def jenji_accounted_status(self):
         trans_to_update = self.filtered(
             lambda t: t.move_id and t.unique_import_id)
-        logger.debug(
+        logger.info(
             "transactions to update to accounted: %s", trans_to_update)
         if not trans_to_update:
             raise UserError(_(
@@ -454,11 +482,10 @@ class JenjiTransaction(models.Model):
     @api.multi
     def jenji_paid_status(self, method='Virement', date=None):
         trans_to_update = self.filtered(
-            lambda t: t.move_id and t.unique_import_id)
-        logger.debug("transactions to update to paid: %s", trans_to_update)
+            lambda t: t.move_id and t.unique_import_id and t.state == 'paid')
+        logger.info("transactions to update to paid: %s", trans_to_update)
         if not trans_to_update:
-            raise UserError(_(
-                "There are no transactions to update."))
+            return
         cxp = self.get_connection_params()
         expense_jids = [t.unique_import_id for t in trans_to_update]
         payload = {
