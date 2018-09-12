@@ -129,7 +129,13 @@ class JenjiTransactionImport(models.TransientModel):
         else:
             total_company_currency = total_currency
             total_untaxed_company_currency = total_untaxed_currency
-
+        analytic_id =line.get('customFields').get('analytic')
+        if analytic_id:
+                analytic_id = analytic_id.replace('odoo-','')
+        if 'tags' in line.keys():
+            tags=', '.join(line.get('tags'))
+        else:
+            tags=None
         vals = {
             'unique_import_id': line.get('id'),
             'date': jto.timestamp2date(line['time']),
@@ -140,9 +146,9 @@ class JenjiTransactionImport(models.TransientModel):
             'expense_categ_code': expense_categ_code,
             'description': description,
             'product_id': product_id,
-            # 'account_analytic_id': account_analytic_id,
-            'partner_id': 1,
-            # 'partner_id': speeddict['partners'][line['userId']],
+           'account_analytic_id': analytic_id,
+            'partner_id': speeddict['partners'][line['userId']],
+            'tags' : tags,
             'total_company_currency': total_company_currency,
             'total_untaxed_company_currency': total_untaxed_company_currency,
             'total_currency': total_currency,
@@ -154,7 +160,6 @@ class JenjiTransactionImport(models.TransientModel):
 
     @api.multi
     def jenji_import(self):
-        self.ensure_one()
         jto = self.env['jenji.transaction']
         speeddict = self._prepare_speeddict()
         logger.info('Importing Jenji transaction via API')
@@ -172,6 +177,7 @@ class JenjiTransactionImport(models.TransientModel):
             'startMonth': start_date_dt.month,
             'startYear': start_date_dt.year,
             }
+
         try:
             res = requests.post(
                 cxp['url'] + '/s/search/v1',
@@ -188,6 +194,7 @@ class JenjiTransactionImport(models.TransientModel):
         answer = res.json()
         from pprint import pprint
         pprint(answer)
+        pprint(speeddict)
         for user in answer['hierarchy'][0]['users']:
             # print "user=", user
             user_email = user['id']

@@ -19,5 +19,18 @@
     <field name="args">()</field>
 </record>
 
+<record id="jenji_state_update_cron" model="ir.cron">
+    <field name="name">Jenji: Update status</field>
+    <field name="active" eval="False"/>
+    <field name="user_id" ref="base.user_root"/>
+    <field name="interval_number">1</field>
+    <field name="interval_type">hours</field>
+    <field name="numbercall">-1</field> <!-- don't limit the number of calls -->
+    <field name="model">jenji.transaction</field>
+    <field name="function">cron_jenji_state_update</field>
+    <field name="args">()</field>
+</record>
+
+
 </data>
 </openerp>

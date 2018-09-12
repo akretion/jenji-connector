@@ -2,8 +2,7 @@
 # Copyright 2018 Akretion (Alexis de Lattre <alexis.delattre@akretion.com>)
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
-from openerp import models, fields, api, _
-from openerp.exceptions import Warning as UserError
+from openerp import models, api
 import requests
 import logging
 logger = logging.getLogger(__name__)
@@ -17,7 +16,7 @@ class AccountAnalyticAccount(models.Model):
     @api.model
     def jenji_sync(self):
         logger.info('Start to sync contracts to jenji')
-        cxp = self.env['jenji.transaction.import'].get_connection_params()
+        cxp = self.env['jenji.transaction'].get_connection_params()
         # The last part of the URL ('analytic') is the technical name
         # of the custom field in Jenji
         url = cxp['url'] + '/s/group-custom-list/v1/analytic/'

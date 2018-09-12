@@ -28,7 +28,8 @@ class JenjiTransaction(models.Model):
         'res.currency', related='company_id.currency_id', readonly=True,
         string="Company Currency")
     description = fields.Char(
-        string='Description', states={'done': [('readonly', True)]})
+        string='Description', readonly=True,
+        states={'draft': [('readonly', False)]})
     unique_import_id = fields.Char(
         string='Unique Identifier', readonly=True, copy=False)
     date = fields.Date(
@@ -39,7 +40,7 @@ class JenjiTransaction(models.Model):
         string='Expense Category Code', readonly=True)
     product_id = fields.Many2one(
         'product.product', string='Expense Product', ondelete='restrict',
-        states={'done': [('readonly', True)]})
+        readonly=True, states={'draft': [('readonly', False)]})
     expense_account_id = fields.Many2one(
         'account.account', compute='compute_expense_account_id', readonly=True,
         string='Expense Account of the Product')
@@ -49,14 +50,14 @@ class JenjiTransaction(models.Model):
         domain=[('type', 'not in', ('view', 'closed', 'consolidation'))])
     account_analytic_id = fields.Many2one(
         'account.analytic.account', string='Analytic Account',
-        domain=[('type', '!=', 'view')],
-        states={'done': [('readonly', True)]}, ondelete='restrict')
+        domain=[('type', '!=', 'view')], readonly=True,
+        states={'draft': [('readonly', False)]}, ondelete='restrict')
     country_id = fields.Many2one(
         'res.country', string='Country', readonly=True)
     merchant = fields.Char(string='Merchant', readonly=True)
     total_untaxed_company_currency = fields.Float(
         digits=dp.get_precision('Account'),
-        states={'done': [('readonly', True)]},
+        states={'draft': [('readonly', False)]},
         readonly=True, string='Untaxed Company Currency')
     vat_company_currency = fields.Float(
         string='VAT Amount',
@@ -81,34 +82,42 @@ class JenjiTransaction(models.Model):
         string='Total Untaxed in Expense Currency', readonly=True)
     image_url = fields.Char(string='Image URL', readonly=True)
     receipt_lost = fields.Boolean(
-        string='Receipt Lost', states={'done': [('readonly', True)]})
+        string='Receipt Lost', readonly=True,
+        states={'draft': [('readonly', False)]})
     state = fields.Selection([
         ('draft', 'Draft'),
-        ('done', 'Done'),
+        ('open', 'Accounted'),
+        ('paid', 'Paid'),
         ], string='State', default='draft', readonly=True)
     jenji_state = fields.Selection([
-        ('posted', 'Posted'),
+        ('accounted', 'Accounted'),
         ('paid', 'Paid'),
         ], string='Status of the Transaction on Jenji', readonly=True)
     user_id = fields.Many2one(
         'res.users', string='User', ondelete='restrict',
-        states={'done': [('readonly', True)]})
+        readonly=True, states={'draft': [('readonly', False)]})
     partner_id = fields.Many2one(
         'res.partner', string='Partner', required=True,
         domain=[('supplier', '=', True), ('parent_id', '=', False)],
-        states={'done': [('readonly', True)]}, ondelete='restrict')
+        states={'draft': [('readonly', False)]}, ondelete='restrict',
+        readonly=True)
     force_expense_account_id = fields.Many2one(
         'account.account', string='Override Expense Account',
         help="Override the expense account configured on the product",
-        states={'done': [('readonly', True)]},
+        states={'draft': [('readonly', False)]}, readonly=True,
         domain=[('type', 'not in', ('view', 'closed', 'consolidation'))])
     mileage_expense = fields.Boolean(string='Mileage Expense', readonly=True)
     move_id = fields.Many2one(
         'account.move', string='Expense Journal Entry', readonly=True)
     billable = fields.Boolean(
-        string='Billable', states={'done': [('readonly', True)]})
+        string='Billable', states={'draft': [('readonly', True)]},
+        readonly=True)
     customer_invoice_id = fields.Many2one(
         'account.invoice', string='Customer Invoice', readonly=True)
+    tags = fields.Char(
+        string='Tags', readonly=True, size=128)
+    meal_type = fields.Char(
+        string='Meal Type', readonly=True)
 
     _sql_constraints = [(
         'unique_import_id',
@@ -176,6 +185,7 @@ class JenjiTransaction(models.Model):
             'url': url,
             'login': username,
             'password': password,
+            'auth': (username, password),
             }
         return cxp
 
@@ -229,10 +239,10 @@ class JenjiTransaction(models.Model):
     @api.multi
     def unlink(self):
         for line in self:
-            if line.state == 'done':
+            if line.state != 'draft':
                 raise UserError(_(
                     "Cannot delete Jenji transaction '%s' which is in "
-                    "done state.") % line.name)
+                    "not in draft state.") % line.name)
             if line.move_id:
                 raise UserError(_(
                     "Cannot delete Jenji transaction '%s which is linked "
@@ -382,18 +392,42 @@ class JenjiTransaction(models.Model):
     @api.multi
     def process_lines(self):
         self.generate_move()
-        self.write({'state': 'done'})
+        self.write({'state': 'open'})
 
     @api.multi
     def back2draft(self):
+        for trans in self:
+            if trans.move_id:
+                trans.move_id.button_cancel()
+                trans.move_id.unlink()
         self.write({'state': 'draft'})
         return True
 
     @api.multi
-    def jenji_posted_status(self):
+    def open2paid(self):
+        self.write({'state': 'paid'})
+
+    @api.model
+    def cron_jenji_state_update(self):
+        logger.info('START cron jenji state update')
+        trans_to_mark_as_accounted = self.search([
+            ('state', 'not in', ('draft', 'paid')),
+            '|', ('jenji_state', '!=', 'accounted'), ('jenji_state', '=', False)])
+        if trans_to_mark_as_accounted:
+            trans_to_mark_as_accounted.jenji_accounted_status()
+        trans_to_mark_as_paid = self.search([
+            ('state', '=', 'paid'),
+            '|', ('jenji_state', '!=', 'paid'), ('jenji_state', '=', False)])
+        if trans_to_mark_as_paid:
+            trans_to_mark_as_paid.jenji_paid_status()
+        logger.info('END cron jenji state update')
+
+    @api.multi
+    def jenji_accounted_status(self):
         trans_to_update = self.filtered(
             lambda t: t.move_id and t.unique_import_id)
-        logger.debug("transactions to update to posted: %s", trans_to_update)
+        logger.info(
+            "transactions to update to accounted: %s", trans_to_update)
         if not trans_to_update:
             raise UserError(_(
                 "There are no transactions to update."))
@@ -406,7 +440,7 @@ class JenjiTransaction(models.Model):
         try:
             res = requests.post(
                 cxp['url'] + '/s/bookkeeper/v2/expense',
-                auth=(cxp['login'], cxp['password']),
+                auth=cxp['auth'],
                 json=payload)
         except Exception as e:
             raise UserError(_(
@@ -428,7 +462,7 @@ class JenjiTransaction(models.Model):
         try:
             res = requests.post(
                 cxp['url'] + '/s/export/v1/export/%s' % export_id,
-                auth=(cxp['login'], cxp['password']),
+                auth=cxp['auth'],
                 json={'state': 'ACCOUNTED'})
         except Exception as e:
             raise UserError(_(
@@ -441,18 +475,17 @@ class JenjiTransaction(models.Model):
                 "/s/export/v1/export/%s. "
                 "Received HTTP error code %s")
                 % (export_id, res.status_code))
-        trans_to_update.write({'jenji_state': 'posted'})
+        trans_to_update.write({'jenji_state': 'accounted'})
         logger.info('Successfully tagged jenji export ID %s as ACCOUNTED',
                     export_id)
 
     @api.multi
     def jenji_paid_status(self, method='Virement', date=None):
         trans_to_update = self.filtered(
-            lambda t: t.move_id and t.unique_import_id)
-        logger.debug("transactions to update to paid: %s", trans_to_update)
+            lambda t: t.move_id and t.unique_import_id and t.state == 'paid')
+        logger.info("transactions to update to paid: %s", trans_to_update)
         if not trans_to_update:
-            raise UserError(_(
-                "There are no transactions to update."))
+            return
         cxp = self.get_connection_params()
         expense_jids = [t.unique_import_id for t in trans_to_update]
         payload = {
@@ -462,7 +495,7 @@ class JenjiTransaction(models.Model):
         try:
             res = requests.post(
                 cxp['url'] + '/s/payroll/v1/expense',
-                auth=(cxp['login'], cxp['password']),
+                auth=cxp['auth'],
                 json=payload)
         except Exception as e:
             raise UserError(_(
@@ -492,7 +525,7 @@ class JenjiTransaction(models.Model):
         try:
             res = requests.post(
                 cxp['url'] + '/s/payroll/v1/export/%s' % export_id,
-                auth=(cxp['login'], cxp['password']), json=payload)
+                auth=cxp['auth'], json=payload)
         except Exception as e:
             raise UserError(_(
                 "Failure in the webservice request for Jenji: "
@@ -534,9 +567,7 @@ class JenjiTransaction(models.Model):
         logger.info('Connecting to Jenji %s with payload %s', url_end, payload)
         try:
             res = requests.put(
-                cxp['url'] + url_end,
-                auth=(cxp['login'], cxp['password']),
-                json=payload)
+                cxp['url'] + url_end, auth=cxp['auth'], json=payload)
         except Exception as e:
             raise UserError(_(
                 "Failure in the webservice request to Jenji: "
@@ -546,3 +577,91 @@ class JenjiTransaction(models.Model):
                 "Error in the connexion to the Jenji webservice %s"
                 "Received HTTP error code %s") % (url_end, res.status_code))
         logger.info('Successfully used Jenji WS %s', url_end)
+
+    def get_detailed_pdf(self):
+        cxp = self.get_connection_params()
+        logger.info('Starting to get detailed PDF for transactions %s', self)
+        expense_uuids = [
+            trans.unique_import_id for trans in self if trans.unique_import_id]
+        datetime_in_tz_dt = fields.Datetime.context_timestamp(
+            self, datetime.now())
+        cur_date_tz = datetime_in_tz_dt.strftime('%Y%m%d%H%M%S')
+        res = False
+        url_pdf = '/s/user-exports/v1/pdf/detailed-light'
+        try:
+            json = {
+                'expenseIds': expense_uuids,
+                'label': 'Jenji_export_%s' % cur_date_tz,
+                }
+            res = requests.post(
+                cxp['url'] + url_pdf, auth=cxp['auth'], json=json, stream=True)
+        except Exception as e:
+            raise UserError(_(
+                "Failure in the webservice request to Jenji: "
+                "%s") % e)
+        if res.status_code not in (200, 201):
+            raise UserError(_(
+                "Error in the connexion to the Jenji webservice %s"
+                "Received HTTP error code %s") % (url_pdf, res.status_code))
+        logger.info('Successfully used Jenji WS %s', url_pdf)
+        res_dict = res.json()
+        export_id = res_dict['exportId']
+        logger.debug('Got export_id=%s', export_id)
+        try_count = 0
+        pdf_file_b64 = False
+        # I would have prefered to use
+        # /user-export-download/v1/dl/{orgId}/{exportId}
+        # but the WS supposed to give orgID doesn't give it
+        url_search = '/s/user-exports/v1/search'
+        now = datetime.now()
+        search_json = {
+            'endMonth': now.month,
+            'endYear': now.year,
+            'startMonth': now.month,
+            'startYear': now.year,
+            }
+        url_dl = 'http://export-user.jenji.io'
+        while try_count <= 10:
+            try_count += 1
+            logger.debug('Updated try_count to %d', try_count)
+            rsearch = False
+            export_file = False
+            try:
+                logger.debug(
+                    'Starting request on %s with payload %s',
+                    url_search, search_json)
+                rsearch = requests.post(
+                    cxp['url'] + url_search, auth=cxp['auth'],
+                    json=search_json, stream=True)
+            except Exception as e:
+                logger.info('Failed to call URL %s', url_search)
+                time.sleep(5)
+                continue
+            if rsearch and rsearch.status_code == 200:
+                exports = rsearch.json().get('exports', [])
+                for export in exports:
+                    if export.get('id') == export_id and export.get('file'):
+                        export_file = export['file']
+                        break
+            if export_file:
+                rdl = False
+                try:
+                    logger.debug(
+                        'GET request on %s with export_file=%s',
+                        url_dl, export_file)
+                    rdl = requests.get(
+                        url_dl + '/' + export_file, auth=cxp['auth'],
+                        stream=True)
+                except Exception as e:
+                    logger.info('Failed to call URL %s', url_dl)
+                    time.sleep(5)
+                    continue
+                if rdl.status_code == 200:
+                    pdf_file = rdl.content
+                    pdf_file_b64 = pdf_file.encode('base64')
+                    logger.info('PDF download ok (trycount=%d)', try_count)
+                    return pdf_file_b64
+            logger.info(
+                'Waiting 5 sec before next try (trycount=%d)', try_count)
+            time.sleep(5)
+        return pdf_file_b64
