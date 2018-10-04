@@ -61,7 +61,7 @@ class JenjiTransactionImport(models.TransientModel):
                 if email in speeddict['partners']:
                     logger.warning(
                         'Email %s present twice on partners (ID %d and %d)',
-                        partner.id, speeddict['partners'][email])
+                        email, partner.id, speeddict['partners'][email])
                 else:
                     speeddict['partners'][email] =\
                         partner.commercial_partner_id.id
