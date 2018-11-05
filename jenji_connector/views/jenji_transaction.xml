@@ -77,7 +77,7 @@
     <field name="name">Jenji Transaction Tree</field>
     <field name="model">jenji.transaction</field>
     <field name="arch"  type="xml">
-        <tree string="Jenji Transactions" colors="blue:state=='draft'">
+        <tree string="Jenji Transactions" colors="blue:state=='draft'" fonts="italic:state=='open'">
             <field name="name"/>
             <field name="company_id" groups="base.group_multi_company"/>
             <field name="partner_id"/>
