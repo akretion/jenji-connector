@@ -151,11 +151,12 @@ class JenjiTransaction(models.Model):
                 trans.total_untaxed_company_currency
             trans.vat_company_currency = vat_company_currency
             deductible_vat_cc = 0
-            if (
-                    trans.product_id.supplier_taxes_id and
-                    not float_is_zero(
-                        trans.product_id.supplier_taxes_id[0].amount,
-                        precision_digits=prec)):
+            taxamount = 0.0
+            for tax in trans.sudo().product_id.supplier_taxes_id:
+                if tax.company_id.id==trans.company_id.id:
+                    taxamount = tax.amount
+                    break
+            if not float_is_zero( taxamount, precision_digits=prec):
                 deductible_vat_cc = vat_company_currency
             trans.deductible_vat_company_currency = deductible_vat_cc
 
