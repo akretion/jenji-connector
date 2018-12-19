@@ -426,7 +426,7 @@ class JenjiTransaction(models.Model):
     @api.multi
     def jenji_accounted_status(self):
         trans_to_update = self.filtered(
-            lambda t: t.move_id and t.unique_import_id)
+            lambda t: t.move_id and t.unique_import_id and t.jenji_state != 'paid')
         logger.info(
             "transactions to update to accounted: %s", trans_to_update)
         if not trans_to_update:
