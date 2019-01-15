@@ -136,6 +136,8 @@
             <filter name="no_mileage_expense" string="Regular Expense"
                 domain="[('mileage_expense', '=', False)]"/>
             <group string="Group By" name="groupby">
+                <filter name="partner_groupby" string="Company"
+                    context="{'group_by': 'company_id'}"/>                
                 <filter name="partner_groupby" string="Partner"
                     context="{'group_by': 'partner_id'}"/>
                 <filter name="date_groupby" string="Date"
@@ -191,6 +193,7 @@
     <field name="name">Jenji Expenses</field>
     <field name="res_model">jenji.transaction</field>
     <field name="view_mode">tree,form,graph,calendar</field>
+	 <field name="search_view_id" ref="jenji_transaction_search"/>
 </record>
 
 <menuitem id="jenji_menu" name="Jenji"
