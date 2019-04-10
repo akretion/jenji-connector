@@ -88,7 +88,7 @@ class JenjiTransactionImport(models.TransientModel):
     @api.model
     def _prepare_transaction(self, line, speeddict, action='create'):
         jto = self.env['jenji.transaction']
-        product_id = account_analytic_id = expense_categ_code = False
+        product_id = expense_categ_code = False
         country_id = speeddict['countries'].get(line.get('country'))
         currency_id = speeddict['currencies'].get(line.get('currency'))
         if not currency_id:
@@ -129,13 +129,13 @@ class JenjiTransactionImport(models.TransientModel):
         else:
             total_company_currency = total_currency
             total_untaxed_company_currency = total_untaxed_currency
-        analytic_id =line.get('customFields').get('analytic')
+        analytic_id = line.get('customFields').get('analytic')
         if analytic_id:
-                analytic_id = analytic_id.replace('odoo-','')
+            analytic_id = analytic_id.replace('odoo-', '')
         if 'tags' in line.keys():
-            tags=', '.join(line.get('tags'))
+            tags = ', '.join(line.get('tags'))
         else:
-            tags=None
+            tags = None
         vals = {
             'unique_import_id': line.get('id'),
             'date': jto.timestamp2date(line['time']),
@@ -146,9 +146,9 @@ class JenjiTransactionImport(models.TransientModel):
             'expense_categ_code': expense_categ_code,
             'description': description,
             'product_id': product_id,
-           'account_analytic_id': analytic_id,
+            'account_analytic_id': analytic_id,
             'partner_id': speeddict['partners'][line['userId']],
-            'tags' : tags,
+            'tags': tags,
             'total_company_currency': total_company_currency,
             'total_untaxed_company_currency': total_untaxed_company_currency,
             'total_currency': total_currency,

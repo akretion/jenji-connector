@@ -153,10 +153,10 @@ class JenjiTransaction(models.Model):
             deductible_vat_cc = 0
             taxamount = 0.0
             for tax in trans.sudo().product_id.supplier_taxes_id:
-                if tax.company_id.id==trans.company_id.id:
+                if tax.company_id.id == trans.company_id.id:
                     taxamount = tax.amount
                     break
-            if not float_is_zero( taxamount, precision_digits=prec):
+            if not float_is_zero(taxamount, precision_digits=prec):
                 deductible_vat_cc = vat_company_currency
             trans.deductible_vat_company_currency = deductible_vat_cc
 
@@ -413,7 +413,8 @@ class JenjiTransaction(models.Model):
         logger.info('START cron jenji state update')
         trans_to_mark_as_accounted = self.search([
             ('state', 'not in', ('draft', 'paid')),
-            '|', ('jenji_state', '!=', 'accounted'), ('jenji_state', '=', False)])
+            '|', ('jenji_state', '!=', 'accounted'),
+            ('jenji_state', '=', False)])
         if trans_to_mark_as_accounted:
             trans_to_mark_as_accounted.jenji_accounted_status()
         trans_to_mark_as_paid = self.search([
@@ -511,13 +512,39 @@ class JenjiTransaction(models.Model):
         if not trans_to_update:
             return
         cxp = self.get_connection_params()
-        expense_jids = [t.unique_import_id for t in trans_to_update]
+        selected_expense_jids = [t.unique_import_id for t in trans_to_update]
+        res1 = False
+        try:
+            res1 = requests.post(
+                cxp['url'] + '/s/expense/v1/load',
+                auth=cxp['auth'], json={'ids': selected_expense_jids})
+        except Exception as e:
+            raise UserError(_(
+                "Failure in the webservice request to Jenji: "
+                "%s") % e)
+        if res1.status_code not in (200, 201):
+            raise UserError(_(
+                "Error in the connexion to the Jenji webservice "
+                "/s/expense/v1/load. "
+                "Received HTTP error code %s") % res1.status_code)
+        expense_jids = []
+        rdict = res1.json()['expensesById']
+        for expense_unique_id, exp_details in rdict.items():
+            exp_state = exp_details.get('state')
+            if exp_state == 'ACCOUNTED':
+                expense_jids.append(expense_unique_id)
+        if not expense_jids:
+            logger.info(
+                'No jenji transactions in ACCOUNTED state (%s)',
+                selected_expense_jids)
+            return
+
         payload = {
             'expenseIds': expense_jids,
             }
-        res = False
+        res2 = False
         try:
-            res = requests.post(
+            res2 = requests.post(
                 cxp['url'] + '/s/payroll/v1/expense',
                 auth=cxp['auth'],
                 json=payload)
@@ -525,18 +552,18 @@ class JenjiTransaction(models.Model):
             raise UserError(_(
                 "Failure in the webservice request to Jenji: "
                 "%s") % e)
-        if res.status_code not in (200, 201):
+        if res2.status_code not in (200, 201):
             raise UserError(_(
                 "Error in the connexion to the Jenji webservice "
                 "/s/payroll/v1/expense. "
-                "Received HTTP error code %s") % res.status_code)
-        answer = res.json()
+                "Received HTTP error code %s") % res2.status_code)
+        answer = res2.json()
         export_id = answer.get('id')
         if not export_id:
             raise UserError(_(
                 "Missing Export ID in the answer of the webservice"))
         logger.info('Successful Jenji payroll export_id = %s', export_id)
-        res = False
+        res3 = False
         if date is None:
             date = fields.Date.context_today(self)
         date_dt = fields.Date.from_string(date)
@@ -547,19 +574,19 @@ class JenjiTransaction(models.Model):
             'time': self.date2timestamp(date_dt),
             }
         try:
-            res = requests.post(
+            res3 = requests.post(
                 cxp['url'] + '/s/payroll/v1/export/%s' % export_id,
                 auth=cxp['auth'], json=payload)
         except Exception as e:
             raise UserError(_(
                 "Failure in the webservice request for Jenji: "
                 "%s") % e)
-        if res.status_code != 200:
+        if res3.status_code != 200:
             raise UserError(_(
                 "Error in the connexion to the Jenji webservice "
                 "/s/payroll/v1/export/%s. "
                 "Received HTTP error code %s")
-                % (export_id, res.status_code))
+                % (export_id, res3.status_code))
         trans_to_update.write({'jenji_state': 'paid'})
         logger.info(
             'Successfully tagged jenji export ID %s as PAID with method %s',

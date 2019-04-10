@@ -8,7 +8,7 @@
     'category': 'Accounting',
     'license': 'AGPL-3',
     'summary': 'Odoo-Jenji Connector',
-    'description' : 'Connecteur Jenji',
+    'description': 'Connecteur Jenji',
     'author': 'Akretion',
     'website': 'http://www.akretion.com',
     'depends': ['account', 'base_vat_sanitized'],
