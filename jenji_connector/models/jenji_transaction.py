@@ -712,6 +712,11 @@ class JenjiTransaction(models.Model):
                     pdf_file_b64 = pdf_file.encode('base64')
                     logger.info('PDF download ok (trycount=%d)', try_count)
                     return pdf_file_b64
+                else:
+                    logger.info(
+                        'GET request on %s with export_file=%s '
+                        'returned status code %s',
+                        url_dl, export_file, rdl.status_code)
             logger.info(
                 'Waiting 5 sec before next try (trycount=%d)', try_count)
             time.sleep(5)
